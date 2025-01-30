@@ -1,0 +1,65 @@
+CUDA_VISIBLE_DEVICES=7 python -m torch.distributed.launch \
+    --nproc_per_node 1 \
+    --master_port 10065 unicore_train.py /mnt/nfs-ssd/data/moyuanhuan/BindNet \
+    --user-dir ./unimol \
+    --train-subset train \
+    --valid-subset valid,test \
+    --num-workers 0 \
+    --ddp-backend c10d \
+    --mode train \
+    --task affinity_regres \
+    --loss affinity_regres \
+    --arch affinity_regres \
+    --task-name LBA_affinity \
+    --optimizer adam \
+    --adam-betas \(0.9,\ 0.99\) \
+    --adam-eps 1e-6 \
+    --clip-norm 1.0 \
+    --weight-decay 1e-4 \
+    --lr-scheduler polynomial_decay \
+    --lr 0.0001 \
+    --warmup-updates 100 \
+    --total-num-update 5000 \
+    --update-freq 1 \
+    --seed 1 \
+    --tensorboard-logdir ./results/LBA30_frad_pretrained_1_lr0.0001_bz8_crnetFreeze0_seed1//tsb \
+    --max-update 5000 \
+    --log-interval 10 \
+    --log-format simple \
+    --save-interval-updates 100000000 \
+    --validate-interval-updates 100 \
+    --keep-interval-updates 1 \
+    --no-epoch-checkpoints \
+    --x-norm-loss 0.01 \
+    --delta-pair-repr-norm-loss -1 \
+    --mask-prob 0.15 \
+    --noise-type uniform \
+    --noise 1.0 \
+    --batch-size 1 \
+    --save-dir ./results/LBA30_frad_pretrained_1_lr0.0001_bz8_crnetFreeze0_seed1/ \
+    --only-polar 0 \
+    --run-name LBA30_frad_pretrained_1_lr0.0001_bz8_crnetFreeze0_seed1 \
+    --dict-name dict_protein.txt \
+    --ligdict-name dict_ligand.txt \
+    --net complex_crnet \
+    --recycling 1 \
+    --CLS-use seperate_CLS \
+    --lig-pretrained /mnt/nfs-ssd/data/moyuanhuan/BindNetData/mol_pre_no_h_220816.pt \
+    --proc-pretrained /mnt/nfs-ssd/data/moyuanhuan/BindNetData/pocket_pre_220816.pt \
+    --complex-pretrained-model /mnt/nfs-ssd/data/moyuanhuan/BindNetData/checkpoint_44_270000.pt \
+    --proc-freeze 1 \
+    --ligand-freeze 1 \
+    --keep-best-checkpoints 1 \
+    --best-checkpoint-metric valid_pearson \
+    --maximize-best-checkpoint-metric \
+    --LBA_data /mnt/nfs-ssd/data/moyuanhuan/DiffDockData/diffDock_dataset_matching/valid_cache/protein_ligand_df.pkl \
+    --no-last-checkpoints \
+    --patience 5 \
+    --freeze-pretrained-transformer 0 \
+    --tmp-save-dir ./new_pretrain_tmp/ \
+    --extract-feat 1 \
+    --extract-pairwise-feat 1 \
+    --save-path ./valid_pairwise_embedding \
+    #> /mnt/nfs-ssd/data/moyuanhuan/BindNet/BindNet_output.log 2>&1
+    #> bowenfeat_crossdock.log 2>&1 &
+    #--extract-feat 1 \

@@ -148,6 +148,13 @@ class AffinityRegres(UnicoreTask):
             help="save path of extract",
         )
 
+        parser.add_argument(
+            "--max-seq-len",
+            default=5000, 
+            type=int, 
+            help="number of positional embeddings to learn"
+        )
+
     def __init__(self, args, dictionary, lig_dictionary):
         super().__init__(args)
         self.dictionary = dictionary
@@ -359,42 +366,77 @@ class AffinityRegres(UnicoreTask):
     
     def extract_feat(self, model):
         # self.load_dataset("train", extrat_feat=True)
-        extract_dataset = torch.utils.data.DataLoader(self.datasets['train'], batch_size=32, collate_fn=self.datasets['train'].collater)
+        extract_dataset = torch.utils.data.DataLoader(self.datasets['train'], batch_size=self.args.batch_size, collate_fn=self.datasets['train'].collater)
         from tqdm import tqdm
         import pickle
-        
-        env = lmdb.open(self.args.save_path, map_size=109951162777)
+        if not os.path.exists(self.args.save_path):
+            os.makedirs(self.args.save_path)
+        env = lmdb.open(self.args.save_path, map_size=549755813885) # 109951162777 54975581388 1649267441664
         txn = env.begin(write=True)
         
         write_count = 0
-        for _, sample in enumerate(tqdm(extract_dataset)):
-            sample = unicore.utils.move_to_cuda(sample)
-            feats = model(**sample['net_input'])
-            nfeats = feats.detach().cpu().numpy()
-            
-            bz = feats.shape[0]
-            for i in range(bz):
-                idx = write_count + i
-                key = str(idx)
-                smi = sample['net_input']['smi'][i]
-                pocket_name = sample['net_input']['pocket_name'][i]
-                write_data = {'feat': nfeats[i], 'smi': smi, 'pocket_name': pocket_name}
-                # serialized_data = pickle.dumps(nfeats[i])
-                serialized_data = pickle.dumps(write_data)
-                txn.put(key.encode(), serialized_data)
-                if idx % 1000 == 0:
-                    txn.commit()
-                    txn = env.begin(write=True)
-            write_count += bz
-            # dist = sample["net_input"]["mol_src_distance"]
-            # et = sample["net_input"]["mol_src_edge_type"]
-            # st = sample["net_input"]["mol_src_tokens"]
-            # mol_padding_mask = st.eq(model.mol_model.padding_idx)
-            # mol_x = model.mol_model.embed_tokens(st)
 
-        txn.commit()
-        env.close()
-        exit(0)
+        if self.args.extract_pairwise_feat:
+            for _, sample in enumerate(tqdm(extract_dataset)):
+
+                sample = unicore.utils.move_to_cuda(sample)
+
+                # lig_embeddings, pocket_atom_embeddings = model(**sample['net_input'])
+                # nlig_embeddings = [lig_embedding.detach().cpu().numpy() for lig_embedding in lig_embeddings]
+                # npocket_atom_embeddings = [pocket_atom_embedding.detach().cpu().numpy() for pocket_atom_embedding in pocket_atom_embeddings]
+
+                ## pairwise embedding
+                pairwise_embeddings = model(**sample['net_input'])
+                npairwise_embeddings = [pairwise_embedding.detach().cpu().numpy() for pairwise_embedding in pairwise_embeddings]
+                
+                bz = len(npairwise_embeddings)
+                for i in range(bz):
+                    idx = write_count + i
+                    #key = str(idx)
+                    #breakpoint()
+                    #smi = sample['net_input']['smi'][i]
+                    pocket_name = sample['net_input']['pocket_name'][i]
+                    #write_data = {'lig_embedding': nlig_embeddings[i], 'pocket_atom_embedding': npocket_atom_embeddings[i], 'smi': smi, 'pocket_name': pocket_name}
+                    write_data = {'pairwise_embedding': npairwise_embeddings[i], 'pocket_name': pocket_name}
+                    # serialized_data = pickle.dumps(nfeats[i])
+                    key = pocket_name.split('_')[0]
+                    serialized_data = pickle.dumps(write_data)
+                    txn.put(key.encode(), serialized_data)
+                    if idx % 1000 == 0:
+                        txn.commit()
+                        txn = env.begin(write=True)
+                write_count += bz
+            txn.commit()
+            env.close()
+            exit(0)
+        else:
+            for _, sample in enumerate(tqdm(extract_dataset)):
+
+                sample = unicore.utils.move_to_cuda(sample)
+
+                lig_embeddings, pocket_atom_embeddings = model(**sample['net_input'])
+                nlig_embeddings = [lig_embedding.detach().cpu().numpy() for lig_embedding in lig_embeddings]
+                npocket_atom_embeddings = [pocket_atom_embedding.detach().cpu().numpy() for pocket_atom_embedding in pocket_atom_embeddings]
+                
+                bz = len(npocket_atom_embeddings)
+                for i in range(bz):
+                    idx = write_count + i
+                    #key = str(idx)
+                    #breakpoint()
+                    smi = sample['net_input']['smi'][i]
+                    pocket_name = sample['net_input']['pocket_name'][i]
+                    write_data = {'lig_embedding': nlig_embeddings[i], 'pocket_atom_embedding': npocket_atom_embeddings[i], 'smi': smi, 'pocket_name': pocket_name}
+                    # serialized_data = pickle.dumps(nfeats[i])
+                    key = pocket_name.split('_')[0]
+                    serialized_data = pickle.dumps(write_data)
+                    txn.put(key.encode(), serialized_data)
+                    if idx % 1000 == 0:
+                        txn.commit()
+                        txn = env.begin(write=True)
+                write_count += bz
+            txn.commit()
+            env.close()
+            exit(0)            
 
     def train_step(
         self, sample, model, loss, optimizer, update_num, ignore_grad=False

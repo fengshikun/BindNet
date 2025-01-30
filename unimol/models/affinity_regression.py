@@ -107,7 +107,7 @@ class AffinityRegresModel(BaseUnicoreModel):
         parser.add_argument(
             "--max-comnum",
             type=int,
-            default=400,
+            default=None,
             help='',
         )
         parser.add_argument(
@@ -175,6 +175,12 @@ class AffinityRegresModel(BaseUnicoreModel):
             help='random choose residue if residue num + ligand num > max_atom_num'
         )
 
+        parser.add_argument(
+            "--extract-pairwise-feat",
+            type=int,
+            default=0,
+            help=''
+        )
 
     def __init__(self, args, dictionary, lig_dictionary=None):
         super().__init__()
@@ -438,7 +444,7 @@ class AffinityRegresModel(BaseUnicoreModel):
         protein_aa_num_eachLigand = None,
         **kwargs
     ):
-
+        #print(src_tokens.shape)
         if frad_dataset is not None:
             frad_dataset.to(src_tokens.device)
 
@@ -649,23 +655,88 @@ class AffinityRegresModel(BaseUnicoreModel):
                         decoder_pair_rep = decoder_pair_rep.permute(0, 3, 1, 2).reshape(
                             -1, mol_sz + pocket_sz, mol_sz + pocket_sz
                         )
+                if self.args.extract_pairwise_feat:
+                    # # following procedure produces pairwise embedding with shape: [batch_size, pocket_num, lig_num, feature_dim]
+                    # # TODO: this will not work when we have batched data
+                    # breakpoint()
+                    # mol_pocket_pair_decoder_rep = (
+                    #     decoder_pair_rep[:, :mol_sz, mol_sz:, :]
+                    #     + decoder_pair_rep[:, mol_sz:, :mol_sz, :].transpose(1, 2)
+                    # ) / 2.0
+                    # mol_pocket_pair_decoder_rep[mol_pocket_pair_decoder_rep == float("-inf")] = 0
+
+                    # mol_pocket_pair_decoder_rep = mol_pocket_pair_decoder_rep.transpose(1,2)
+                    # # pair_mask = ~pocket_padding_mask.T*~mol_padding_mask
+                    # # pair_mask = pair_mask.unsqueeze(0)
+                    # # pair_mask = pair_mask.unsqueeze(-1)
+                    # num_true_pocket = torch.sum(~pocket_padding_mask).item()
+                    # num_true_mol = torch.sum(~mol_padding_mask).item()
+                    
+                    # mol_pocket_pair_decoder_rep = mol_pocket_pair_decoder_rep[:, :num_true_pocket, :num_true_mol, :] # remove padding token(start and end token also true)
+                    # mol_pocket_pair_decoder_rep = mol_pocket_pair_decoder_rep[:, 1:-1, 1:-1, :] # remove start and end token
+
+                    # following procedure produces pairwise embedding with shape  [batch_size, lig_num + pocket_num, lig_num + pocket_num, feature_dim]
+                    #breakpoint()
+                    decoder_pair_rep[decoder_pair_rep == float("-inf")] = 0
+                    lig_lig_pair_rep = decoder_pair_rep[:, :mol_sz, :mol_sz, :]
+                    pocket_pocket_pair_rep = decoder_pair_rep[:, mol_sz:, mol_sz:, :]
+                    lig_pocket_pair_rep = decoder_pair_rep[:, :mol_sz, mol_sz:, :]
+                    pocket_lig_pair_rep = decoder_pair_rep[:, mol_sz:, :mol_sz, :]
+                    #breakpoint()
+                    num_true_pocket = torch.sum(~pocket_padding_mask).item()
+                    num_true_mol = torch.sum(~mol_padding_mask).item()
+                    lig_lig_pair_rep = lig_lig_pair_rep[:, :num_true_mol, :num_true_mol, :]
+                    pocket_pocket_pair_rep = pocket_pocket_pair_rep[:, :num_true_pocket, :num_true_pocket, :]
+                    lig_pocket_pair_rep = lig_pocket_pair_rep[:, :num_true_mol, :num_true_pocket, :]
+                    pocket_lig_pair_rep = pocket_lig_pair_rep[:, :num_true_pocket, :num_true_mol, :]
+
+                    lig_lig_pair_rep = lig_lig_pair_rep[:, 1:-1, 1:-1, :]
+                    pocket_pocket_pair_rep = pocket_pocket_pair_rep[:, 1:-1, 1:-1, :]
+                    lig_pocket_pair_rep = lig_pocket_pair_rep[:, 1:-1, 1:-1, :]
+                    pocket_lig_pair_rep = pocket_lig_pair_rep[:, 1:-1, 1:-1, :]
+
+                    bz = decoder_pair_rep.shape[0]
+                    feature_dim = lig_lig_pair_rep.shape[-1]
+
+                    num_mol = num_true_mol - 2
+                    num_pocket = num_true_pocket - 2
+
+                    pairwise_embedding = torch.zeros((bz, num_mol+num_pocket, num_mol+num_pocket, feature_dim), 
+                                                      device=lig_lig_pair_rep.device)
+                    pairwise_embedding[:, :num_mol, :num_mol, :] = lig_lig_pair_rep
+                    pairwise_embedding[:, num_mol:, num_mol:, :] = pocket_pocket_pair_rep
+                    pairwise_embedding[:, :num_mol, num_mol:, :] = lig_pocket_pair_rep
+                    pairwise_embedding[:, num_mol:, :num_mol, :] = pocket_lig_pair_rep
+                                        
+                    return pairwise_embedding                   
                 mol_decoder = decoder_rep[:, :mol_sz]
                 pocket_decoder = decoder_rep[:, mol_sz:]
-                # Affinity Regression Head Calculation
-                if self.args.CLS_use == "complex_CLS":
-                    cls_token = decoder_rep[:, 0, :]
-                elif self.args.CLS_use == "seperate_CLS":
-                    if hasattr(self.args, 'use_esm') and self.args.use_esm:
-                        protein_cls_token = pocket_decoder.mean(dim = 1)
-                    else:
-                        protein_cls_token = pocket_decoder[:, 0, :]
-                    ligand_cls_token = mol_decoder[:, 0, :]
-                    cls_token = torch.cat([protein_cls_token, ligand_cls_token], dim=-1)
-                else:
-                    raise KeyError("choose CLS_use from complex_CLS and seperate_CLS")
-                
+                # # Affinity Regression Head Calculation
+                # if self.args.CLS_use == "complex_CLS":
+                #     cls_token = decoder_rep[:, 0, :]
+                # elif self.args.CLS_use == "seperate_CLS":
+                #     if hasattr(self.args, 'use_esm') and self.args.use_esm:
+                #         protein_cls_token = pocket_decoder.mean(dim = 1)
+                #     else:
+                #         protein_cls_token = pocket_decoder[:, 0, :]
+                #     ligand_cls_token = mol_decoder[:, 0, :]
+                #     cls_token = torch.cat([protein_cls_token, ligand_cls_token], dim=-1)
+                # else:
+                #     raise KeyError("choose CLS_use from complex_CLS and seperate_CLS")
+                bz = mol_decoder.shape[0]
+                lig_embedding_lst = []
+                pocket_atom_embedding_lst = []
+                #breakpoint()
+                for i in range(bz):
+                    lig_embedding_lst.append(mol_decoder[i][~mol_padding_mask[i]][1:-1]) # remove the start and end token
+                    pocket_atom_embedding_lst.append(pocket_decoder[i][~pocket_padding_mask[i]][1:-1]) # remove the start and end token
+                # concat the ligand and atom embeddings
+                #breakpoint()
+                # lig_embedding = torch.cat(lig_embedding_lst, dim=0)
+                # pocket_atom_embedding = torch.cat(pocket_atom_embedding_lst, dim=0)
+                #breakpoint()                                    
                 if self.args.extract_feat:
-                    return cls_token
+                    return lig_embedding_lst, pocket_atom_embedding_lst
                 affinity_predict = self.aff_regression_head(cls_token).squeeze(-1)
             elif self.args.net == 'old_transformer':
                 mol_sz = lig_encoder_rep.size(1)

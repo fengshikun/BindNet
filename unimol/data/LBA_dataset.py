@@ -22,7 +22,8 @@ from Bio.PDB import PDBParser
 from torch_geometric.data import Batch
 from torch_geometric.data import Data
 
-
+import copy
+from rdkit import Chem
 
 class LBADataset(InMemoryDataset):
     def __init__(self, data_path, split,  transform_noise=None, lp_sep=False):
@@ -201,54 +202,93 @@ class ExtractDockDataset(BaseWrapperDataset):
 
 
 class CrossDockDataInfer(InMemoryDataset):
-    def __init__(self, file_path='/data/protein/bowen19/train_retrieval.lmdb', max_num=512):
-        # get file handler
-        self.env = lmdb.open(
-            file_path,
-            subdir=False,
-            readonly=True,
-            lock=False,
-            readahead=False,
-            meminit=False,
-            max_readers=256,
-        )
-        self.txn = self.env.begin()
-        keys = list(self.txn.cursor().iternext(values=False))
-        self.length = len(keys)
+    def __init__(self, file_path='protein_ligand_df.pkl', max_num=512):
+
+        with open(file_path,'rb') as f:
+            self.protein_ligand_df  = pickle.load(f)
         self.max_num = max_num
 
     def __len__(self) -> int:        
-        return self.length
+        return len(self.protein_ligand_df)
 
     def __getitem__(self, idx):
-
+        
         data = Data()
 
 
         # get z, pos, and y
         # read element
-        data.idx = idx
-        ky = f'{idx}'.encode()
-        datapoint_pickled = self.txn.get(ky)
-        data_item = pk.loads(datapoint_pickled)
-        # print(data_item["smi"])
+        data_item = self.protein_ligand_df.iloc[idx, :]
+        complex_graph = data_item['complex_graph']
+        print(complex_graph['name'])
+        ligand_feats = complex_graph['ligand'].x
+        atom_type_idx = ligand_feats[:,0] + 1
+        # get atom type from atom type index
+        ligand_atom_type = [Chem.GetPeriodicTable().GetElementSymbol(int(i)) for i in atom_type_idx]
+        data.atoms = ligand_atom_type
+        data.coordinates = complex_graph['ligand'].pos.numpy()
 
-        data.atoms = data_item['atoms']
-        data.coordinates = data_item['coordinates'][0]
-        data.pocket_atoms = data_item['pocket_atoms']
-        data.pocket_coordinates = data_item['pocket_coordinates']
-        data.smi = data_item['smi']
-        data.pocket_name = data_item['pocket_name']
-
-
-        if len(data.pocket_atoms) > self.max_num:
-            org_len = len(data.pocket_atoms)
-            random_idx = random.sample(range(org_len), self.max_num)
-            data.pocket_atoms = np.array(data_item['pocket_atoms'])[random_idx]
-            data.pocket_coordinates = data_item['pocket_coordinates'][random_idx]
+        pocket_atom_feats = complex_graph['atom'].x
+        pocket_atom_feats = pocket_atom_feats[:,1] + 1
+        pocket_atom_type = []
+        for i in pocket_atom_feats:
+            try:
+                pocket_atom_type.append(Chem.GetPeriodicTable().GetElementSymbol(int(i)))
+            except:
+                pocket_atom_type.append("[UNK]")
+        #pocket_atom_type = [Chem.GetPeriodicTable().GetElementSymbol(int(i)) for i in pocket_atom_feats]        
+        data.pocket_atoms = pocket_atom_type
+        data.pocket_coordinates = complex_graph['atom'].pos.numpy()
+        data.smi = Chem.MolToSmiles(data_item['mol'])
+        data.pocket_name = complex_graph['name']
+        #breakpoint()
+        if self.max_num is not None:
+            if len(data.pocket_atoms) > self.max_num:
+                org_len = len(data.pocket_atoms)
+                random_idx = random.sample(range(org_len), self.max_num)
+                data.pocket_atoms = np.array(pocket_atom_type)[random_idx]
+                data.pocket_coordinates = complex_graph['atom'].pos.numpy()[random_idx]
 
         data.y = 1 # fake label
         return data
+        # item = self.protein_ligand_df.iloc[idx, :]
+        # complex_graph = item['complex_graph']
+        # org_coordinates = copy.copy(complex_graph['ligand'].pos)
+        # #noise_complex_graph = self.transform(item)
+        
+        # # extract the information for bindnet
+        
+        # bindnet_data = Data()
+        
+        
+        # # extract the ligand information
+        # ligand_coordinate = complex_graph['ligand'].pos.numpy() # already after applying noise, TODO for bindnet, change it to the rdkit coordinate
+        # ligand_feats = complex_graph['ligand'].x
+        # atom_type_idx = ligand_feats[:,0] + 1
+        # # get atom type from atom type index
+        # ligand_atom_type = [Chem.GetPeriodicTable().GetElementSymbol(int(i)) for i in atom_type_idx]
+        # ligand_info = {'coordinates': ligand_coordinate, 'atom_type_symbol': ligand_atom_type, 'org_coordinates': org_coordinates}
+        # bindnet_data.ligand = ligand_info
+        # bindnet_data.smi = Chem.MolToSmiles(item['mol'])
+        # # org_coordinates
+        
+        
+        
+        
+        # # extract the pocket information
+        # pocket_atom_feats = complex_graph['atom']['x']
+        # pocket_atom_feats = pocket_atom_feats[:,1] + 1
+        # pocket_atom_type = [Chem.GetPeriodicTable().GetElementSymbol(int(i)) for i in pocket_atom_feats]
+        # pocket_info = {'pocket_coordinates': complex_graph['atom']['pos'].numpy(), 'pocket_atom_type': pocket_atom_type}
+        # bindnet_data.pocket_name = complex_graph['name']
+        # bindnet_data.pocket_info = pocket_info
+        
+        # bindnet_data.heterodata = complex_graph
+        
+        # # if bindnet_data.heterodata.name == '5c0m_protein_processed_fix.pdb___5c0m_ligand.sdf':
+        # #     print('debug')
+        
+        # return bindnet_data
 
 
 if __name__ == '__main__':
