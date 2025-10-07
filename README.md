@@ -69,7 +69,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node
        --cr-regression 1 --rdkit-random 1 --mask-feature 1 \
 ```
 
-The pretrained model could be downloaded from the following link: https://drive.google.com/drive/folders/1KllcdJOuoMJedJBWvfGMLo6OMsg9Dk4V?usp=sharing
+The pretrained model could be downloaded from the following link: [https://drive.google.com/drive/folders/1KllcdJOuoMJedJBWvfGMLo6OMsg9Dk4V?usp=sharing](https://drive.google.com/drive/folders/1KllcdJOuoMJedJBWvfGMLo6OMsg9Dk4V?usp=sharing)
 
 # Finetune
 ``` bash
