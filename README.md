@@ -9,7 +9,7 @@ The Biolip data should be downloaded from https://zhanggroup.org/BioLiP/index.cg
 
 `python3 ./data/BioLip/BioLip.py`
 
-The processed data of LBA, LEP, DUD-E and AD could be downloaded from: https://drive.google.com/drive/folders/1NfXpsbbsR7FNIEoU88EA04Jmgnio0q_O?usp=sharing
+The processed data of LBA, LEP, DUD-E and AD could be downloaded from: https://drive.google.com/drive/folders/1NfXpsbbsR7FNIEoU88EA04Jmgnio0q_O?usp=drive_link
 
 The data of docking is the same as Uni-Mol, which could be downloaded from the following link: https://bioos-hermite-beijing.tos-cn-beijing.volces.com/unimol_data/finetune/protein_ligand_binding_pose_prediction.tar.gz
 
@@ -69,7 +69,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 python -m torch.distributed.launch --nproc_per_node
        --cr-regression 1 --rdkit-random 1 --mask-feature 1 \
 ```
 
-The pretrained model could be downloaded from the following link: https://drive.google.com/file/d/1k40YI_Et472S3lG1CMs5-of4-Gf_op8_/view?usp=sharing
+The pretrained model could be downloaded from the following link: https://drive.google.com/drive/folders/1KllcdJOuoMJedJBWvfGMLo6OMsg9Dk4V?usp=sharing
 
 # Finetune
 ``` bash
